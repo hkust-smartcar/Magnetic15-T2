@@ -1,0 +1,5 @@
+!./inc/*
+!./src/*
+bin
+build
+obj
