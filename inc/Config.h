@@ -16,6 +16,8 @@
 #define USE_JOY_STICK			0
 #define ADVANCED_SPEED_MONITOR	1
 #define HIGH_LEVEL_INSTR		1
+#define CALIBRATE_METHOD		4
+#define SET_THRESHOLD_METHOD	2
 
 #define CLAMP(a,v,b) ( (a < v) ? ( (v < b ) ? v : b ) : a )
 

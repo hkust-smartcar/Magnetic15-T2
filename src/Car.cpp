@@ -158,9 +158,6 @@ Car::Car()
 			l_magneticSensor.back().setTriggerThreshold(
 							config.c_magneticSensorTriggerThreshold);
 		}
-#if HIGH_LEVEL_INSTR
-		CALIBRATE_SENSORS();
-#endif
 
 		m_motor.SetPower(config.c_motorPower);
 		m_motor.SetClockwise(config.c_motorRotateClockwise);
@@ -209,6 +206,10 @@ void Car::run()
 	lcdInterface.useMenu(&menu);
 #endif
 #ifdef DEBUG_MODE
+	//	And sensors calibration
+#if HIGH_LEVEL_INSTR
+		CALIBRATE_SENSORS();
+#endif
 
 #endif
 	/*
@@ -273,6 +274,25 @@ void Car::btListener(const Byte* byte, const size_t size){
 //	case 'x':
 //			m_instance->servo.SetDegree(1350);
 //			break;
+	switch(*byte)
+	{
+	case 'a':
+		if(m_instance->config.c_kalmanFilterControlVariable[0]<0.95)
+			m_instance->config.c_kalmanFilterControlVariable[0]+=0.05;
+		break;
+	case 'z':
+		if(m_instance->config.c_kalmanFilterControlVariable[0]>0.05)
+			m_instance->config.c_kalmanFilterControlVariable[0]-=0.05;
+		break;
+	case 's':
+		if(m_instance->config.c_kalmanFilterControlVariable[1]<0.95)
+				m_instance->config.c_kalmanFilterControlVariable[1]+=0.05;
+				break;
+	case 'x':
+		if(m_instance->config.c_kalmanFilterControlVariable[1]>0.05)
+			m_instance->config.c_kalmanFilterControlVariable[1]-=0.05;
+				break;
+	}
 	}
 }
 void Car::r_ledRoutine()
@@ -446,18 +466,21 @@ void Car::r_servoRoutine()
 #endif
 		}else
 		{
-
+			//Straight road and crosses
 		}
 	}else
 	{
-
+		//turn
 	}
 #endif
 }
+//TODO try to finish this algorithm after plotting of the sensors in different situation.
+
 #elif USE_SERVO_ALG==3
 /*
  * Third algorithm: simple PID that uses the difference between the readings as set points
  */
+
 #endif
 
 void Car::r_motorRoutine()
@@ -495,22 +518,66 @@ void Car::r_bluetoothRoutine()
 		m_bluetooth.SendBuffer(buffer,len);
 	}
 #endif
+#define SEND_FORMAT 6
+	//TODO Enable this for testing readings in different situation first.
 	if(config.c_broadcastSensorReading)
 	{
 		std::string buf="";
 		int i=0;
+		float reading[4];
+		float reference[4];
+		float threshold[4];
 		for(MgItr it=l_magneticSensor.begin();
 				it!=l_magneticSensor.end();it++)
 		{
 			float value=it->getReading();
+			reference[i]=it->getReferenceReading();
+			reading[i]=value;
+			threshold[i]=it->getThreshold();
 			//it works:)
-			buf+=m_bluetooth.composeMessage(i,value,config.c_broadcastPlainValue);
-			buf+='\n';
+			//TODO for testing signals
+			char buffer[100];
+#if SEND_FORMAT == 1
+			int len=sprintf(buffer,"%f",value);
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+			m_bluetooth.SendStrLiteral("\n");
+			System::DelayMs(20);
+#endif
+//			buf+=m_bluetooth.composeMessage(i,value,config.c_broadcastPlainValue);
+//			buf+='\n';
 
 //			m_bluetooth.SendStr(m_bluetooth.composeMessage(i,value));
 			i++;
 		}
-		m_bluetooth.SendStr(buf);
+#if SEND_FORMAT == 2
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f,%f,%f\n",m_filter.Filter(reading[0]),
+					m_filter.Filter(reading[1]),m_filter.Filter(reading[2]),m_filter.Filter(reading[3]),
+					config.c_kalmanFilterControlVariable[0],config.c_kalmanFilterControlVariable[1]);
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
+#if SEND_FORMAT == 3
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f\n",reading[0],reading[1],reading[2],reading[3]);
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
+#if SEND_FORMAT == 4
+			//TODO hard fault?!
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f,%f,%f\n",reading[0],reading[1],reading[2],reading[3],
+									l_magneticSensor.front().getReferenceReading(),
+									l_magneticSensor.front().getThreshold());
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
+#if SEND_FORMAT == 5
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f,%f,%f,%f,%f\n",reading[0],reading[1],reading[2],reading[3],
+												reference[0],reference[1],reference[2],reference[3]);
+						m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
+#if SEND_FORMAT == 6
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f,%f\n",reading[0],reading[1],reading[2],reading[3],
+												reference[0],reference[1],reference[2],reference[3],
+												threshold[0],threshold[1],threshold[2],threshold[3]
+												);
+						m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
 	}
 	if(config.c_broadcastPIDControlVariable)
 	{
@@ -585,5 +652,14 @@ void Car::MOVE_BACKWARD(uint16_t power, uint16_t angle,bool isLeft)
 		config.c_servoAngle=libutil::Clamp<uint16_t>(0,finalAngle+angle,1800);
 	}
 }
-
 #endif
+
+void Car::r_restoreBlock()
+{
+	if(config.c_halt)
+	{
+		/*
+		 * Insert codes that the system needs to do when the car is halted.
+		 */
+	}
+}

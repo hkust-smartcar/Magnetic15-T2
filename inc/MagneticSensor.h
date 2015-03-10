@@ -8,10 +8,12 @@
 #ifndef INC_MAGNETICSENSOR_H_
 #define INC_MAGNETICSENSOR_H_
 #include <libbase/k60/adc.h>
+#include <libsc/k60/System.h>
 #include <libutil/misc.h>
 #include <functional>
 #include <KF.h>
 #include <Config.h>
+#include <stack>
 using namespace libbase::k60;
 class MagneticSensor {
 public:
@@ -46,6 +48,8 @@ public:
 	void 				setRange(int min,int max);
 	void				setTriggerThreshold(float threshold);
 	float 				getReading();
+	float				getReferenceReading();
+	float				getThreshold();
 	float				getFilteredReading(KF filter);
 	void 				setEnable(bool flag);
 	void				updateReading();

@@ -15,7 +15,7 @@ std::string TBluetooth::composeMessage(int index,float value,bool plain)
 	char message[125];
 	if(plain)
 	{
-		sprintf(message,"%f",value);
+		sprintf(message,"%f\n",value);
 	}else
 	{
 		sprintf(message,"%c%i%c%f\n",protocol.SIGNAL

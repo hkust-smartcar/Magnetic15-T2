@@ -10,6 +10,7 @@
 #include <functional>
 #include <queue>
 #include <Config.h>
+#include <libsc/k60/System.h>
 //#define CAR_STATE_HANDLING 1
 class CarState {
 public:
