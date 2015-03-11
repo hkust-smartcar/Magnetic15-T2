@@ -14,6 +14,7 @@
 #include <KF.h>
 #include <Config.h>
 #include <stack>
+#include <list>
 using namespace libbase::k60;
 class MagneticSensor {
 public:
@@ -35,11 +36,11 @@ public:
 	}
 	enum				ReadingState
 	{
-			IN_REFERENCE_STATE,
-			BELOW_REFERENCE_STATE,
-			ABOVE_REFERENCE_STATE,
-			IS_MINIMAL,
-			IS_MAXIMAL
+			IN_REFERENCE_STATE		=	0,
+			BELOW_REFERENCE_STATE	=	-1,
+			ABOVE_REFERENCE_STATE	=	1,
+			IS_MINIMAL				=	-2,
+			IS_MAXIMAL				=	2
 	};
 	void 				setMin(int min);
 	void 				setMax(int max);

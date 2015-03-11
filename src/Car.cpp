@@ -330,6 +330,8 @@ void Car::r_accelerometerRoutine()
 void Car::r_magneticSensorRoutine()
 {
 	if(config.c_halt)return;
+	MagneticSensor::ReadingState state[4];
+	int i=0;
 	for(MgItr it=l_magneticSensor.begin();
 			it!=l_magneticSensor.end();it++)
 	{
@@ -338,15 +340,47 @@ void Car::r_magneticSensorRoutine()
 		{
 			it->getFilteredReading(m_filter);
 		}
-//		else
-//		{
-//			it->filteredReading=it->rawReading;
-//		}
+		else
+		{
+			it->getReading();
+//			state[i]=it->getState();
+		}
+		i++;
 	}
+#if SENSOR_PUSH_STATE_ALG == 1
+	if(state[0]==MagneticSensor::ReadingState::IN_REFERENCE_STATE &&
+	   state[1]==MagneticSensor::ReadingState::IN_REFERENCE_STATE &&
+	   state[2]==MagneticSensor::ReadingState::IN_REFERENCE_STATE &&
+	   state[3]==MagneticSensor::ReadingState::IN_REFERENCE_STATE)
+	{
+		this->state.addTask(CarState::Situation::s_straightRoad);
+		return;
+	}
+	if(state[0]==MagneticSensor::ReadingState::IN_REFERENCE_STATE &&
+	   state[1]==MagneticSensor::ReadingState::IN_REFERENCE_STATE &&
+	   state[2]<=MagneticSensor::ReadingState::BELOW_REFERENCE_STATE &&
+	   state[3]==MagneticSensor::ReadingState::IN_REFERENCE_STATE)
+	{
+		this->state.addTask(CarState::Situation::s_turnRight);
+		return;
+	}
+	if(state[0]==MagneticSensor::ReadingState::IN_REFERENCE_STATE &&
+	   state[1]<=MagneticSensor::ReadingState::BELOW_REFERENCE_STATE &&
+	   state[2]==MagneticSensor::ReadingState::IN_REFERENCE_STATE &&
+	   state[3]==MagneticSensor::ReadingState::IN_REFERENCE_STATE)
+	{
+		this->state.addTask(CarState::Situation::s_turnLeft);
+		return;
+	}
+	this->state.addTask(CarState::Situation::s_straightRoad);
 
+#endif
+#if		SENSOR_PUSH_STATE_ALG == 2
+#endif
 }
 void Car::r_stateHandlingRoutine()
 {
+#if STATE_HANDLING_ROUTINE ==1
 	if(state.scheduler.situationQueue.size()!=0)
 	{
 		CarState::SituationScheduler::Event event
@@ -361,22 +395,66 @@ void Car::r_stateHandlingRoutine()
 		}
 		state.completeTask();
 	}
+#endif
+#if STATE_HANDLING_ROUTINE == 2
+	if(state.scheduler.situationQueue.size()==0)return;
+	while(state.getTask().runAfter<=System::Time())
+	{
+		CarState::Situation situation=state.getTask().situation;
+		switch(situation)
+		{
+		/*
+		 * TODO the following may not represent all the cases.
+		 * 		e.g. when the car comes to a right-angled turn,
+		 * 		the 4 readings change rapidly and this may lead
+		 * 		to other cases.
+		 * TODO try to apply fuzzy logic here
+		 */
+			case CarState::Situation::s_straightRoad:
+			case CarState::Situation::s_crossRoad:
+				//optimal case: works like straight line
+			case CarState::Situation::s_smallTurn:
+				config.c_servoAngle=900;
+				break;
+			case CarState::Situation::s_turnLeft:
+				config.c_servoAngle=650;
+				break;
+			case CarState::Situation::s_turnRight:
+				config.c_servoAngle=1250;
+				break;
+			case CarState::Situation::s_rightAngleToLeft:
+				config.c_servoAngle=450;
+				break;
+			case CarState::Situation::s_rightAngleToRight:
+				config.c_servoAngle=1350;
+				break;
+				//remain previous state
+			case CarState::Situation::s_transition:
+				break;
+		}
+		conformProtocol();
+		state.completeTask();
+	}
+#endif
+#if STATE_HANDLING_ROUTINE == 3
+	state.scheduler.processSensorState(getDifferenceState());
+#endif
 }
-//TODO get it done as well
 #if DEBUG_MODE!=1
 void Car::r_servoRoutine()
 {
 	if(config.c_halt)return;
 	if(l_magneticSensor.size()%2)return;
 	if(l_magneticSensor.size()==0)return;
+#endif
 #if USE_SERVO_ALG==0
 		/*
 		 * This is almost equivalent to manually control the servo.
 		 */
 		m_servo.SetDegree(config.c_servoAngle);
 
-
-#elif USE_SERVO_ALG==1
+#endif
+#if USE_SERVO_ALG==1
 		/*
 		 * Simple algorithm to determine servo angle by comapring
 		 * the difference between the reading of left and right sensors
@@ -407,11 +485,10 @@ void Car::r_servoRoutine()
 	}else{
 		m_servo.setAngleBySignalDifference(LRF-RRF);
 	}
-#elif USE_SERVO_ALG==2
+#endif
+#if USE_SERVO_ALG==2
 #ifndef ADVANCED_SPEED_MONITOR
 #define ADVANCED_SPEED_MONITOR 1
-#endif
-	//TODO get this done
 		/*
 		 *	This algorithm is designed to deal with 4 magnetic sensors with the leftmost and rightmost perpendicular
 		 *	To the car and the two in the middle lies 45 degrees to the car.
@@ -473,14 +550,13 @@ void Car::r_servoRoutine()
 		//turn
 	}
 #endif
+#endif
 }
-//TODO try to finish this algorithm after plotting of the sensors in different situation.
 
-#elif USE_SERVO_ALG==3
+#if USE_SERVO_ALG == 3
 /*
  * Third algorithm: simple PID that uses the difference between the readings as set points
  */
-
 #endif
 
 void Car::r_motorRoutine()
@@ -518,7 +594,7 @@ void Car::r_bluetoothRoutine()
 		m_bluetooth.SendBuffer(buffer,len);
 	}
 #endif
-#define SEND_FORMAT 6
+
 	//TODO Enable this for testing readings in different situation first.
 	if(config.c_broadcastSensorReading)
 	{
@@ -527,15 +603,18 @@ void Car::r_bluetoothRoutine()
 		float reading[4];
 		float reference[4];
 		float threshold[4];
+		int state[4];
 		for(MgItr it=l_magneticSensor.begin();
 				it!=l_magneticSensor.end();it++)
 		{
+#if CALIBRATE_METHOD < 6
 			float value=it->getReading();
 			reference[i]=it->getReferenceReading();
 			reading[i]=value;
 			threshold[i]=it->getThreshold();
+			state[i]=(int)(it->getState());
+#endif
 			//it works:)
-			//TODO for testing signals
 			char buffer[100];
 #if SEND_FORMAT == 1
 			int len=sprintf(buffer,"%f",value);
@@ -543,10 +622,6 @@ void Car::r_bluetoothRoutine()
 			m_bluetooth.SendStrLiteral("\n");
 			System::DelayMs(20);
 #endif
-//			buf+=m_bluetooth.composeMessage(i,value,config.c_broadcastPlainValue);
-//			buf+='\n';
-
-//			m_bluetooth.SendStr(m_bluetooth.composeMessage(i,value));
 			i++;
 		}
 #if SEND_FORMAT == 2
@@ -560,7 +635,6 @@ void Car::r_bluetoothRoutine()
 			m_bluetooth.SendBuffer((Byte*)buffer,len);
 #endif
 #if SEND_FORMAT == 4
-			//TODO hard fault?!
 			int len=sprintf((char*)buffer,"%f,%f,%f,%f,%f,%f\n",reading[0],reading[1],reading[2],reading[3],
 									l_magneticSensor.front().getReferenceReading(),
 									l_magneticSensor.front().getThreshold());
@@ -576,8 +650,16 @@ void Car::r_bluetoothRoutine()
 												reference[0],reference[1],reference[2],reference[3],
 												threshold[0],threshold[1],threshold[2],threshold[3]
 												);
-						m_bluetooth.SendBuffer((Byte*)buffer,len);
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
 #endif
+#if SEND_FORMAT == 7
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f,%f,%f,%f,%f,%d,%d,%d,%d\n",reading[0],reading[1],reading[2],reading[3],
+															threshold[0],threshold[1],threshold[2],threshold[3],
+															state[0],state[1],state[2],state[3]
+															);
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
+
 	}
 	if(config.c_broadcastPIDControlVariable)
 	{
@@ -602,11 +684,102 @@ void Car::r_bluetoothRoutine()
 #if HIGH_LEVEL_INSTR
 void	Car::CALIBRATE_SENSORS()
 {
+#if CALIBRATE_METHOD <=5
 	for(MgItr i=l_magneticSensor.begin();i!=l_magneticSensor.end();i++)
 	{
 		i->calibrate();
 	}
+#endif
+#if CALIBRATE_METHOD == 6
+	/*
+	 * This method uses the difference among readings of sensors to determine state.
+	 */
+	float reading[4];
+	int i=0,count=0;
+	TimerInt initTime=System::Time(),elapsedTime=initTime;
+			float difference[6]={0,0,0,0,0,0},sqdifference[6]={0,0,0,0,0,0};
+	while(elapsedTime-System::Time()<=1000)	//calibrate for 1 second
+	{
+		i=0;
+		for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
+		{
+			reading[i]=it->getReading();
+			i++;
+		}
+		difference[0]+=reading[1]-reading[0];
+		difference[1]+=reading[2]-reading[0];
+		difference[2]+=reading[3]-reading[0];
+		difference[3]+=reading[2]-reading[1];
+		difference[4]+=reading[3]-reading[1];
+		difference[5]+=reading[3]-reading[2];
+		sqdifference[0]+=(reading[1]-reading[0])*(reading[1]-reading[0]);
+		sqdifference[0]+=(reading[2]-reading[0])*(reading[2]-reading[0]);
+		sqdifference[0]+=(reading[3]-reading[0])*(reading[3]-reading[0]);
+		sqdifference[0]+=(reading[2]-reading[1])*(reading[2]-reading[1]);
+		sqdifference[0]+=(reading[3]-reading[1])*(reading[3]-reading[1]);
+		sqdifference[0]+=(reading[3]-reading[2])*(reading[3]-reading[2]);
+		count++;
+		elapsedTime=System::Time();
+	}
+	for(int i=0;i<6;i++)
+	{
+		state.scheduler.signalDifference[i]=difference[i]/count;
+		state.scheduler.signalDifference[i]=sqdifference[i]/count-difference[i]*difference[i]/(count*count);
+	}
+#endif
 }
+#if STATE_IDENTIFY_ALG == 3
+std::list<MagneticSensor::ReadingState> Car::getDifferenceState()
+{
+		typedef std::list<MagneticSensor>::iterator MgItr;
+		float reading[4],difference[6]={0,0,0,0,0,0};
+		int i=0;
+		for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
+		{
+			reading[i]=it->getReading();
+			i++;
+		}
+		difference[0]+=reading[1]-reading[0];
+		difference[1]+=reading[2]-reading[0];
+		difference[2]+=reading[3]-reading[0];
+		difference[3]+=reading[2]-reading[1];
+		difference[4]+=reading[3]-reading[1];
+		difference[5]+=reading[3]-reading[2];
+		std::list<MagneticSensor::ReadingState> result;
+		for(int i=0;i<6;i++)
+		{
+			float dif=difference[i],
+				  ref=state.scheduler.signalDifference[i],
+				  thr=state.scheduler.signalThreshold[i];
+			if(dif<=ref+thr&&dif>=ref-thr)
+			{
+				result.push_back(MagneticSensor::ReadingState::IN_REFERENCE_STATE);
+				continue;
+			}
+			if(dif<ref-thr && dif>=ref-2*thr)
+			{
+				result.push_back(MagneticSensor::ReadingState::BELOW_REFERENCE_STATE);
+				continue;
+			}
+			if(dif<ref - 2*thr)
+			{
+				result.push_back(MagneticSensor::ReadingState::IS_MINIMAL);
+				continue;
+			}
+			if(dif>ref+thr && dif<=ref+2*thr)
+			{
+				result.push_back(MagneticSensor::ReadingState::ABOVE_REFERENCE_STATE);
+				continue;
+			}
+			if(dif>ref+2*thr)
+			{
+				result.push_back(MagneticSensor::ReadingState::IS_MAXIMAL);
+				continue;
+			}
+		}
+		return result;
+}
+#endif
 void	Car::CALIBRATE_SENSORS(KF filter)
 {
 	for(MgItr i=l_magneticSensor.begin();i!=l_magneticSensor.end();i++)
@@ -662,4 +835,21 @@ void Car::r_restoreBlock()
 		 * Insert codes that the system needs to do when the car is halted.
 		 */
 	}
+}
+
+void Car::conformProtocol()
+{
+	/*
+	 * Set all parameters of the car to the current configuration
+	 */
+	m_servo.SetDegree(config.c_servoAngle);
+	m_motor.SetPower(config.c_motorPower);
+	m_motor.SetClockwise(config.c_motorRotateClockwise);
+	for(MgItr i=l_magneticSensor.begin();
+			i!=l_magneticSensor.end();i++)
+	{
+		i->setMax(config.c_magneticSensorUpperBound);
+		i->setMin(config.c_magneticSensorLowerBound);
+	}
+	//TODO complete the rest
 }

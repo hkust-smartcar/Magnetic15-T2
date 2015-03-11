@@ -23,7 +23,7 @@ public:
 	bool	 			c_halt;
 	volatile bool		c_mode;	//1 means auto. 0 means manual
 	const	 int		c_ledCount;
-
+	const	 uint16_t	c_processStateAfterTime;
 #if VERSION > 2L
 	const	 float		c_sensorCarDistance;		//in m
 #endif

@@ -19,6 +19,8 @@ CarConfig::CarConfig():
 
 	c_servoAngleLowerBound				(0),
 
+	c_processStateAfterTime				(50),	//in ms
+
 	c_servoAngleUpperBound				(1000),
 
 	c_wheelDiameter						(0.0535),
@@ -39,7 +41,7 @@ CarConfig::CarConfig():
 
 	c_magneticSensorLowerBound		=	0;
 	c_magneticSensorUpperBound		=	100;
-	c_magneticSensorTriggerThreshold= 	3;		//for [0,100]
+//	c_magneticSensorTriggerThreshold= 	3;		//for [0,100]
 
 	c_motorPIDEnabled				=	0;
 	c_motorPIDControlVariable[0]	=	0;

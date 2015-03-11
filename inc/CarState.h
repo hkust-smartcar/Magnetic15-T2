@@ -11,7 +11,9 @@
 #include <queue>
 #include <Config.h>
 #include <libsc/k60/System.h>
-//#define CAR_STATE_HANDLING 1
+#include <list>
+#include <MagneticSensor.h>
+
 class CarState {
 public:
 	typedef 	uint16_t		TimerInt;
@@ -26,13 +28,20 @@ public:
 	enum		Situation
 	{
 			s_straightRoad=0,
-			s_turn,
-			s_rightAngle,
-			s_crossRoad
+			s_turnLeft,
+			s_turnRight,
+			s_rightAngleToLeft,
+			s_rightAngleToRight,
+			s_crossRoad,
+			s_smallTurn,
+			s_transition
 	};
 	class 		SituationScheduler
 	{
 		public:
+
+			SituationScheduler(TimerInt interval=0);
+
 			struct 		Event
 			{
 				public:
@@ -40,9 +49,35 @@ public:
 					Situation 		situation;
 					float			distanceUponEventDetection;
 			};
-			SituationScheduler(TimerInt interval=0);
+#if STATE_HANDLING_ROUTINE == 2 || STATE_HANDLING_ROUTINE == 3
+			struct		Schedule
+			{
+				public:
+					Schedule(Situation s,TimerInt interval)
+					{
+						situation=s;
+						runAfter=interval+libsc::k60::System::Time();
+					}
+					Situation			situation;
+					TimerInt			runAfter;
+			};
+			std::queue<Schedule>	situationQueue;
+			TimerInt				processStateAfterTime;
+#endif
+
+#if STATE_HANDLING_ROUTINE == 1
 			std::queue<Event>		situationQueue;
+#endif
 			TimerInt				pushInterval;
+#if CALIBRATE_METHOD == 6
+			/*
+			 * the 6th algorithm requires the difference between any two sensors
+			 * which has 4C2 = 6 combinations in total.
+			 */
+			float 					signalDifference[6];
+			float					signalThreshold[6];
+			void					processSensorState(std::list<MagneticSensor::ReadingState> list);
+#endif
 	};
 
 	TimerInt						lastUpdateTime;
@@ -53,8 +88,12 @@ public:
 	void							addTask(Situation situation
 											,float distance);
 	void							updateSituation();
+#if STATE_HANDLING_ROUTINE == 1
 	SituationScheduler::Event		getTask();
-
+#endif
+#if STATE_HANDLING_ROUTINE == 2
+	SituationScheduler::Schedule	getTask();
+#endif
 	SituationScheduler	scheduler;
 #endif
 };

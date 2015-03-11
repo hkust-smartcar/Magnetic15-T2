@@ -165,6 +165,31 @@ void MagneticSensor::calibrate()
 	referenceReading=sum/count;
 	setTriggerThreshold(sumsq/count-referenceReading*referenceReading);
 #endif
+#if CALIBRATE_METHOD == 5
+	/*
+	 * This method aims to improve the previous calibration method. It is noted that the threshold set by the previous method
+	 * is way too large. It is suspected that the VARIANCE may be used as the threshold.
+	 */
+	const uint16_t startTime	= libsc::k60::System::Time();
+	uint16_t	   elapsedTime	= startTime;
+	float sum=0,min=0,max=0,sumsq=0;
+	int count=0;
+	while(elapsedTime-startTime<1000)		//1 sec
+		{
+			count++;
+			float sample=getReading();
+			sum+=sample;
+			sumsq+=(sample*sample);
+			if(max<sample)max=sample;
+			if(min>sample)min=sample;
+			elapsedTime=libsc::k60::System::Time();
+		}
+	referenceReading=sum/count;
+	setTriggerThreshold(7);
+#endif
+	/*
+	 * The 6th method for calibration is implemented in the general CALIBRATE_SENSORS method
+	 */
 }
 void MagneticSensor::calibrate(KF filter)
 {
@@ -192,8 +217,10 @@ bool MagneticSensor::isNotInReferenceState()
  * In reference state does not imply the reading is at the middle of the interval. If the reference is in the upper quartile
  * and the threshold is large enough, the IS_MAXIMAL case may never be returned.
  */
+#if STATE_IDENTIFY_ALG != 3
 MagneticSensor::ReadingState MagneticSensor::getState()
 {
+#if STATE_IDENTIFY_ALG ==1
 	if(filteredReading<referenceReading-threshold)
 	{
 		if(filteredReading<getMin()+threshold)
@@ -216,7 +243,41 @@ MagneticSensor::ReadingState MagneticSensor::getState()
 	{
 		return ReadingState::IN_REFERENCE_STATE;
 	}
+#endif
+#if STATE_IDENTIFY_ALG == 2
+	/*
+	 * 2nd algorithm for identifying sensor state.
+	 */
+		float value=getReading();
+		if(value<=referenceReading+threshold
+				&&value>=referenceReading-threshold)
+		{
+			return ReadingState::IN_REFERENCE_STATE;
+		}
+		if(value<referenceReading-threshold
+				&&value>=referenceReading - 2*threshold)
+		{
+			return ReadingState::BELOW_REFERENCE_STATE;
+		}
+		if(value>referenceReading+threshold
+				&&value>=referenceReading + 2*threshold)
+		{
+			return ReadingState::ABOVE_REFERENCE_STATE;
+		}
+		if(value>referenceReading+ 2* threshold)
+		{
+			return ReadingState::IS_MAXIMAL;
+		}
+		if(value<referenceReading - 2* threshold)
+		{
+			return ReadingState:: IS_MINIMAL;
+		}
+		return ReadingState::IN_REFERENCE_STATE;
+
+#endif
+
 }
+#endif
 void	MagneticSensor::setTriggerThreshold(float thr)
 {
 //	threshold=libutil::Clamp<float>((float)(getMax()-getMin())/50,threshold,(float)(getMax-getMin())/5);
