@@ -37,6 +37,10 @@
 #include <MathUtil.h>
 #include "Config.h"
 #include "TBluetooth.h"
+#include "Utils.h"
+#if VERSION > 2L
+#include "TMotorModule.h"
+#endif
 //#include <libsc/k60/joystick.h>
 using namespace libsc::k60;
 using namespace libbase::k60;
@@ -53,6 +57,7 @@ public:
 	typedef		BatteryMeter 						Meter;
 	typedef		std::list<MagneticSensor>::iterator MgItr;
 	typedef		std::list<TLed>::iterator			LedItr;
+	TimerInt	currentTime;
 	CarConfig 	config;
 	CarState	state;
 				Car();
@@ -60,7 +65,7 @@ public:
 	Meter		m_meter;
 #endif
 	static void btListener(const Byte* byte, const size_t size);
-
+#if VERSION == 1L
 	void 		r_ledRoutine();
 	void 		r_encoderRoutine();
 	void 		r_accelerometerRoutine();
@@ -68,11 +73,28 @@ public:
 	void		r_servoRoutine();
 	void		r_motorRoutine();
 	void		r_bluetoothRoutine();
+	void		r_restoreBlock();
+#endif
 #if CAR_STATE_HANDLING
 	void		r_stateHandlingRoutine();
 #endif
 	void 		run();
+	void		conformProtocol();
+#if IS_DEBUG
+	void		d_servoDebug();
+#endif
+#if STATE_IDENTIFY_ALG ==3
+	/*
+	 * The function should not be declared here if one consider the abstract data structure.
+	 * However size every MagneticSensor instances cannot get readings from each other,
+	 * the function must be implemented in Car to avoid any further complexity.
+	 * Once the list of state is obtained, it should be passed to the CarState for
+	 * further processing. The function processSensorState() therefore exists.
+	 */
+	std::list<MagneticSensor::ReadingState> getDifferenceState();
 
+	MagneticSensor::ReadingState			readingState[6];
+#endif
 #if HIGH_LEVEL_INSTR
 	void		BREAK();
 	void		RESTORE();
@@ -80,27 +102,24 @@ public:
 	void		MOVE_BACKWARD(uint16_t power,uint16_t andgle,bool isLeft);
 	void		CALIBRATE_SENSORS();
 	void		CALIBRATE_SENSORS(KF filter);
+#if VERSION >= 2L
+	void		ACCELERATE(float acceleration);
+	std::list<Module> l_modules;
+#endif
 #endif
 
 private:
-//	Led 		 		led;
-//	Led 		 		btLockInd;
-//	Led 		 		m_btTxInd;
-//	DirMotor 	 		m_dirMotor;
-//	TrsD05 		 		servo;
-//	Mpu6050 	 		m_accelerometer;
-//	MagneticSensor 		mg[2];
+
 #ifdef USE_LCD
 	LcdInterface 				lcdInterface;
 	LcdInterface::Menu 			menu;
 #endif
+	//The filter is now for the sensor's construction.
 	KF 							m_filter;
 	std::list<TLed>				l_led;
 	std::list<MagneticSensor> 	l_magneticSensor;
 	TMotor						m_motor;
-#if DEBUG_MODE!=1
 	TServo						m_servo;
-#endif
 	TEncoder 	 				m_encoder;
 	TBluetooth	 				m_bluetooth;
 #if DEBUG_MODE==1

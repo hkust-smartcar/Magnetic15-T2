@@ -108,7 +108,8 @@ Car::Car()
 #endif
 		m_filter(config.c_kalmanFilterControlVariable[0],
 			   config.c_kalmanFilterControlVariable[1],
-			   1,1)
+			   1,1),
+		currentTime(System::Time())
 #if USE_BATTERY_METER
 		,m_meter(config)
 #endif
@@ -150,7 +151,7 @@ Car::Car()
 					pin=Pin::Name::kPtd1;
 					break;
 			}
-			l_magneticSensor.push_back(MagneticSensor(pin));
+			l_magneticSensor.push_back(MagneticSensor(pin,m_filter));
 			l_magneticSensor.back().setMin(
 							config.c_magneticSensorLowerBound);
 			l_magneticSensor.back().setMax(
@@ -216,21 +217,37 @@ void Car::run()
 	 * Do not modify the following code in any circumstances.
 	 */
 	while(true){
-		System::DelayMs(config.c_loopInterval);
+		if(System::Time()-currentTime<config.c_loopInterval)
+		{
+			continue;
+		}
+		if(config.c_halt)
+		{
+			r_restoreBlock();
+			continue;
+		}
+#if VERSION == 1L
 		r_encoderRoutine();
 		r_ledRoutine();
 		r_accelerometerRoutine();
 		r_magneticSensorRoutine();
-
+		r_bluetoothRoutine();
 #if !CAR_STATE_HANDLING
-#if DEBUG_MODE!=1
+
 		r_servoRoutine();
-#endif
 		r_motorRoutine();
 #else
 		r_stateHandlingRoutine();
 #endif
-		r_bluetoothRoutine();
+#endif
+#if VERSION >= 2L
+		for(std::list<Module>::iterator i=l_modules.begin();
+				i!=l_modules.end();i++)
+		{
+			i->run();
+		}
+#endif
+		currentTime=System::Time();
 	}
 }
 
@@ -241,25 +258,6 @@ void Car::btListener(const Byte* byte, const size_t size){
 //	case 'r':
 //		m_instance->btLock=!m_instance->btLock;
 //		m_instance->bt.SendStr("BT: I get something!");
-//		break;
-//	case 's':
-//		m_instance->lcdInterface.highlightNextOption();
-//		break;
-//	case 't':
-//		m_instance->filter.setParam(KF::VAR::Q,libutil::Clamp<float>(0,
-//				m_instance->filter.getParam(KF::VAR::Q)+0.125,1));
-//		break;
-//	case 'g':
-//		m_instance->filter.setParam(KF::VAR::Q,libutil::Clamp<float>(0,
-//						m_instance->filter.getParam(KF::VAR::Q)-0.125,1));
-//		break;
-//	case 'y':
-//		m_instance->filter.setParam(KF::VAR::R,libutil::Clamp<float>(0,
-//						m_instance->filter.getParam(KF::VAR::R)+0.125,1));
-//		break;
-//	case 'h':
-//		m_instance->filter.setParam(KF::VAR::R,libutil::Clamp<float>(0,
-//						m_instance->filter.getParam(KF::VAR::R)-0.125,1));
 //		break;
 //	case 'u':
 //		if(m_instance->dirMotor.GetPower()==0){
@@ -292,6 +290,15 @@ void Car::btListener(const Byte* byte, const size_t size){
 		if(m_instance->config.c_kalmanFilterControlVariable[1]>0.05)
 			m_instance->config.c_kalmanFilterControlVariable[1]-=0.05;
 				break;
+	case 'q':
+		if(m_instance->m_motor.GetPower()!=0)
+		{
+			m_instance->m_motor.SetPower(0);
+		}else
+		{
+			m_instance->m_motor.SetPower(m_instance->config.c_motorPower);
+		}
+		break;
 	}
 	}
 }
@@ -376,8 +383,10 @@ void Car::r_magneticSensorRoutine()
 
 #endif
 #if		SENSOR_PUSH_STATE_ALG == 2
+
 #endif
 }
+#if CAR_STATE_HANDLING
 void Car::r_stateHandlingRoutine()
 {
 #if STATE_HANDLING_ROUTINE ==1
@@ -437,9 +446,44 @@ void Car::r_stateHandlingRoutine()
 	}
 #endif
 #if STATE_HANDLING_ROUTINE == 3
-	state.scheduler.processSensorState(getDifferenceState());
+	state.processSensorState(getDifferenceState());
+			CarState::Situation situation=state.getTask().situation;
+			switch(situation)
+			{
+			/*
+			 * TODO the following may not represent all the cases.
+			 * 		e.g. when the car comes to a right-angled turn,
+			 * 		the 4 readings change rapidly and this may lead
+			 * 		to other cases.
+			 * TODO try to apply fuzzy logic here
+			 */
+				case CarState::Situation::s_straightRoad:
+				case CarState::Situation::s_crossRoad:
+					//optimal case: works like straight line
+				case CarState::Situation::s_smallTurn:
+					config.c_servoAngle=900;
+					break;
+				case CarState::Situation::s_turnLeft:
+					config.c_servoAngle=650;
+					break;
+				case CarState::Situation::s_turnRight:
+					config.c_servoAngle=1250;
+					break;
+				case CarState::Situation::s_rightAngleToLeft:
+					config.c_servoAngle=450;
+					break;
+				case CarState::Situation::s_rightAngleToRight:
+					config.c_servoAngle=1350;
+					break;
+					//remain previous state
+				case CarState::Situation::s_transition:
+					break;
+			}
+			conformProtocol();
+			state.completeTask();
 #endif
 }
+#endif
 #if DEBUG_MODE!=1
 void Car::r_servoRoutine()
 {
@@ -551,13 +595,56 @@ void Car::r_servoRoutine()
 	}
 #endif
 #endif
-}
-
 #if USE_SERVO_ALG == 3
 /*
- * Third algorithm: simple PID that uses the difference between the readings as set points
+ * Third algorithm: identify differences between the readings of sensors on both sides
  */
+	int j=0;
+	float reading[4];
+	for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
+	{
+		if(config.c_useKalmanFilter)
+		{
+			reading[j]=it->getFilteredReading();
+		}else
+		{
+			reading[j]=it->getReading();
+		}
+		j++;
+	}
+	float dif = (reading[0]-reading[3])/(reading[3]+reading[0]);
+			//TODO calibrate the values
+//	config.c_servoAngle=config.c_servoCentralAngle*(config.c_servoAngleMultiplier*dif+1);
+	if( dif>1||dif<-1) return;
+	//Is the sensor out of range?
+	float thr=config.c_sensorSignalInvalidThreshold;
+	if(reading[0]<thr&&reading[3]<thr) return;
+	config.c_servoAngle=config.c_servoCentralAngle*(config.c_servoAngleMultiplier*dif+1);
+	m_servo.SetDegree(config.c_servoAngle);
 #endif
+#if USE_SERVO_ALG == 4
+	int j=0;
+		float reading[4];
+		for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
+		{
+			if(config.c_useKalmanFilter)
+			{
+				reading[j]=it->getFilteredReading();
+			}else
+			{
+				reading[j]=it->getReading();
+			}
+			j++;
+		}
+		float dif = (reading[0]-reading[3])/(reading[3]+reading[0]);
+		//TODO is that work?
+		if( dif>1||dif<-1) return;
+		config.c_servoAngle=config.c_servoCentralAngle*(config.c_servoAngleMultiplier*dif+1);
+		m_servo.SetDegree(config.c_servoAngle);
+#endif
+}
+
+
 
 void Car::r_motorRoutine()
 {
@@ -617,10 +704,15 @@ void Car::r_bluetoothRoutine()
 			//it works:)
 			char buffer[100];
 #if SEND_FORMAT == 1
-			int len=sprintf(buffer,"%f",value);
+			int j=0;
+			for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
+			{
+				reading[j]=it->getReading();
+				j++;
+			}
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f\n",reading[0],reading[1],reading[2],reading[3]);
 			m_bluetooth.SendBuffer((Byte*)buffer,len);
-			m_bluetooth.SendStrLiteral("\n");
-			System::DelayMs(20);
+
 #endif
 			i++;
 		}
@@ -659,7 +751,55 @@ void Car::r_bluetoothRoutine()
 															);
 			m_bluetooth.SendBuffer((Byte*)buffer,len);
 #endif
-
+#if SEND_FORMAT == 8
+			int j=0;
+			int readingState[6];
+			std::list<MagneticSensor::ReadingState> list=getDifferenceState();
+			for(std::list<MagneticSensor::ReadingState>::iterator it
+					=list.begin();it!=list.end();it++)
+			{
+				readingState[j]=(int)(*it);
+				j++;
+			}
+			int len=sprintf((char*)buffer,"%d,%d,%d,%d,%d,%d\n",readingState[0],
+							readingState[1],readingState[2]
+							,readingState[3],readingState[4],readingState[5]);
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
+#if SEND_FORMAT == 9
+			int j=0;
+			int readingState[6];
+			std::list<MagneticSensor::ReadingState> list=getDifferenceState();
+			for(std::list<MagneticSensor::ReadingState>::iterator it
+					=list.begin();it!=list.end();it++)
+			{
+				readingState[j]=(int)(*it);
+				j++;
+			}
+			j=0;
+			for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
+			{
+				reading[j]=it->getReading();
+				j++;
+			}
+			int len=sprintf((char*)buffer,"%f,%f,%f,%f,%d,%d,%d,%d,%d,%d\n",
+					reading[0],reading[1],reading[2],reading[3],
+					readingState[0],readingState[1],readingState[2]
+							,readingState[3],readingState[4],readingState[5]);
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
+#if SEND_FORMAT == 10
+			int j=0;
+			for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
+			{
+				reading[j]=it->getReading();
+				j++;
+			}
+			int len=sprintf((char*)buffer,"%f,%f,%f,%d\n",reading[3],
+					reading[0],(reading[3]-reading[0])/(reading[3]+reading[0])
+					*(config.c_servoAngleMultiplier+1),m_servo.GetDegree());
+			m_bluetooth.SendBuffer((Byte*)buffer,len);
+#endif
 	}
 	if(config.c_broadcastPIDControlVariable)
 	{
@@ -698,7 +838,7 @@ void	Car::CALIBRATE_SENSORS()
 	int i=0,count=0;
 	TimerInt initTime=System::Time(),elapsedTime=initTime;
 			float difference[6]={0,0,0,0,0,0},sqdifference[6]={0,0,0,0,0,0};
-	while(elapsedTime-System::Time()<=1000)	//calibrate for 1 second
+	while(elapsedTime-initTime<=1000)	//calibrate for 1 second
 	{
 		i=0;
 		for(MgItr it=l_magneticSensor.begin();it!=l_magneticSensor.end();it++)
@@ -713,18 +853,20 @@ void	Car::CALIBRATE_SENSORS()
 		difference[4]+=reading[3]-reading[1];
 		difference[5]+=reading[3]-reading[2];
 		sqdifference[0]+=(reading[1]-reading[0])*(reading[1]-reading[0]);
-		sqdifference[0]+=(reading[2]-reading[0])*(reading[2]-reading[0]);
-		sqdifference[0]+=(reading[3]-reading[0])*(reading[3]-reading[0]);
-		sqdifference[0]+=(reading[2]-reading[1])*(reading[2]-reading[1]);
-		sqdifference[0]+=(reading[3]-reading[1])*(reading[3]-reading[1]);
-		sqdifference[0]+=(reading[3]-reading[2])*(reading[3]-reading[2]);
+		sqdifference[1]+=(reading[2]-reading[0])*(reading[2]-reading[0]);
+		sqdifference[2]+=(reading[3]-reading[0])*(reading[3]-reading[0]);
+		sqdifference[3]+=(reading[2]-reading[1])*(reading[2]-reading[1]);
+		sqdifference[4]+=(reading[3]-reading[1])*(reading[3]-reading[1]);
+		sqdifference[5]+=(reading[3]-reading[2])*(reading[3]-reading[2]);
 		count++;
 		elapsedTime=System::Time();
 	}
 	for(int i=0;i<6;i++)
 	{
+		//TODO threshold too high?
 		state.scheduler.signalDifference[i]=difference[i]/count;
-		state.scheduler.signalDifference[i]=sqdifference[i]/count-difference[i]*difference[i]/(count*count);
+		state.scheduler.signalThreshold[i]=1.2*(sqdifference[i]/count
+						-difference[i]*difference[i]/(count*count));	//double the variance may work better
 	}
 #endif
 }
@@ -834,6 +976,7 @@ void Car::r_restoreBlock()
 		/*
 		 * Insert codes that the system needs to do when the car is halted.
 		 */
+		r_bluetoothRoutine();
 	}
 }
 
@@ -853,3 +996,13 @@ void Car::conformProtocol()
 	}
 	//TODO complete the rest
 }
+#if IS_DEBUG
+void Car::d_servoDebug()
+{
+	for(uint16_t i=0;i<1800; i+=100)
+	{
+		m_servo.SetDegree(i);
+		System::DelayMs(200);
+	}
+}
+#endif

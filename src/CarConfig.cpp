@@ -17,25 +17,27 @@ CarConfig::CarConfig():
 
 	c_voltmeterVoltageRatio				(1),
 
+	c_servoCentralAngle					(650),
+
 	c_servoAngleLowerBound				(0),
 
 	c_processStateAfterTime				(50),	//in ms
 
-	c_servoAngleUpperBound				(1000),
+	c_servoAngleUpperBound				(1300),
 
 	c_wheelDiameter						(0.0535),
 	c_encoderCountPerRevolution			(500),
 	c_gearRatio							(2.625) // 105/40
 {
-	c_mode							=	1;
+	c_mode							=	0;
 
-	c_loopInterval					=	200;
+	c_loopInterval					=	10;
 
-	c_servoAngleMultiplier			=	11;
-	c_servoAngle					=	900;
+	c_servoAngleMultiplier			=	50;
+	c_servoAngle					=	800;
 
 
-	c_motorPower					=	250;
+	c_motorPower					=	300;
 	c_motorRotateClockwise			=	0;
 
 
@@ -59,9 +61,10 @@ CarConfig::CarConfig():
 	c_broadcastPlainValue			=	1;
 
 	c_useKalmanFilter				=	1;
-	c_kalmanFilterControlVariable[0]=	0.5;
-	c_kalmanFilterControlVariable[1]=	0.5;
-	c_signalTriggerThreshold		=	3.0;
+	c_kalmanFilterControlVariable[0]=	0.00001;
+	c_kalmanFilterControlVariable[1]=	0.8;
+	c_signalTriggerThreshold		=	0;
+	c_sensorSignalInvalidThreshold	=	20;
 
 }
 

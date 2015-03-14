@@ -25,8 +25,9 @@ Adc::Config GetAdcConfig(Pin::Name pin)
 
 }
 
-MagneticSensor::MagneticSensor(Pin::Name pin)
-		: adc(GetAdcConfig(pin)),isEnable(true)
+MagneticSensor::MagneticSensor(Pin::Name pin,KF filter)
+		: adc(GetAdcConfig(pin)),isEnable(true),
+		  filter(filter.getParam(KF::VAR::Q),filter.getParam(KF::VAR::R),1,1)
 {
 	//sensorCount++;
 	min=0;
@@ -34,8 +35,9 @@ MagneticSensor::MagneticSensor(Pin::Name pin)
 	referenceReading=getReading();
 }
 
-MagneticSensor::MagneticSensor(libbase::k60::Adc::Config config)
-							:adc(config),isEnable(true)
+MagneticSensor::MagneticSensor(libbase::k60::Adc::Config config,KF filter)
+							:adc(config),isEnable(true),
+							 filter(filter.getParam(KF::VAR::Q),filter.getParam(KF::VAR::R),1,1)
 {
 	//MagneticSensor::sensorCount++;
 	min=0;
@@ -295,4 +297,13 @@ float	MagneticSensor::getThreshold()
 float	MagneticSensor::getReferenceReading()
 {
 	return referenceReading;
+}
+float MagneticSensor::getFilteredReading()
+{
+	return getFilteredReading(filter);
+}
+void MagneticSensor::setFilterConfig(float q,float r)
+{
+	filter.setParam(KF::VAR::Q,q);
+	filter.setParam(KF::VAR::R,r);
 }

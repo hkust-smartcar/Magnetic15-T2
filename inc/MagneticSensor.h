@@ -21,14 +21,14 @@ public:
 	typedef 			std::function<void(Adc *adc, const uint16_t result)>
 						OnConversionCompleteListener;
 
-	explicit 			MagneticSensor(Pin::Name pin);
-	explicit 			MagneticSensor(libbase::k60::Adc::Config config);
+	explicit 			MagneticSensor(Pin::Name pin,KF filter);
+	explicit 			MagneticSensor(libbase::k60::Adc::Config config,KF filter);
 
 	static 	Adc::Config	getAdcConfig(libbase::k60::Pin::Name pin){
 				Adc::Config config;
 					config.pin=pin;
-					config.is_continuous_mode=false;
-					config.is_diff_mode=false;
+//					config.is_continuous_mode=false;
+//					config.is_diff_mode=false;
 					config.speed=Adc::Config::SpeedMode::kTypical;
 					config.avg_pass=Adc::Config::AveragePass::k4;
 					config.resolution=Adc::Config::Resolution::k8Bit;
@@ -51,6 +51,7 @@ public:
 	float 				getReading();
 	float				getReferenceReading();
 	float				getThreshold();
+	float				getFilteredReading();
 	float				getFilteredReading(KF filter);
 	void 				setEnable(bool flag);
 	void				updateReading();
@@ -59,7 +60,9 @@ public:
 	void				calibrate(KF filter);
 	bool				isNotInReferenceState();
 	ReadingState		getState();
+	void				setFilterConfig(float q,float r);
 private:
+	KF					filter;
 	float				threshold;
 	float				referenceReading;
 	float				rawReading;

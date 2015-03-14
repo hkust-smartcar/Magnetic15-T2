@@ -36,6 +36,7 @@ public:
 	volatile uint16_t 	c_servoAngle;
 	const 	 uint16_t	c_servoAngleLowerBound;
 	const	 uint16_t	c_servoAngleUpperBound;
+	const	 uint16_t	c_servoCentralAngle;
 	volatile uint16_t 	c_motorPower;
 	volatile bool 	  	c_motorRotateClockwise;
 
@@ -66,7 +67,7 @@ public:
 	const	 float		c_wheelDiameter;	//in m
 	const	 int		c_encoderCountPerRevolution;
 	const	 float		c_gearRatio;		//Tire gear/motor gear
-
+	volatile float		c_sensorSignalInvalidThreshold;
 };
 
 #endif /* INC_CARCONFIG_H_ */

@@ -76,10 +76,12 @@ public:
 			 */
 			float 					signalDifference[6];
 			float					signalThreshold[6];
-			void					processSensorState(std::list<MagneticSensor::ReadingState> list);
+
 #endif
 	};
-
+#if CALIBRATE_METHOD == 6
+	void					processSensorState(std::list<MagneticSensor::ReadingState> list);
+#endif
 	TimerInt						lastUpdateTime;
 	void							completeTask();
 #if !ADVANCE_SPEED_MONITOR
@@ -91,7 +93,7 @@ public:
 #if STATE_HANDLING_ROUTINE == 1
 	SituationScheduler::Event		getTask();
 #endif
-#if STATE_HANDLING_ROUTINE == 2
+#if STATE_HANDLING_ROUTINE >= 2
 	SituationScheduler::Schedule	getTask();
 #endif
 	SituationScheduler	scheduler;
